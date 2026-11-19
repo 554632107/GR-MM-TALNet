@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Two fusion networks.
-MM_TALNet adds one shared residual to the tabular logit.
-MM_TALNetGateSmall is GR-MM-TALNet. Its residual is split into text and ECG terms, each with its own gate.
-The table encoder is 48-dimensional, with 2 layers and 4 heads. Text is a frozen BERT [CLS] vector of size 768. ECG input is 12×5000.
-Three tokens pass through one fusion layer. Missing text or ECG is masked, and the patient stays in the cohort.
-A laboratory item uses both time points only when a second measurement exists; otherwise it uses the first only.
+Define multimodal networks and modality encoders.
+MM_TALNet uses one shared residual; MM_TALNetGateSmall implements GR-MM-TALNet with separate gated text and ECG residuals.
+Mask missing auxiliary modalities and use paired laboratory measurements when available.
 """
+
 from __future__ import annotations
 
 import torch
@@ -14,7 +12,7 @@ import torch.nn as nn
 
 
 class TemporalPairEncoder(nn.Module):
-    """Shared by every laboratory item. Two time points become one item token."""
+    """Shared temporal encoder mapping two measurements of each laboratory item to one token."""
 
     def __init__(self, d_model: int, dropout: float = 0.25):
         super().__init__()
@@ -78,7 +76,7 @@ class TableSwitch(nn.Module):
 
 
 class ECGEncoder(nn.Module):
-    """Shallow 1-D convolution. Fusion uses the 64-dimensional features. The classification head is not fused."""
+    """Shallow 1-D convolution. Fusion uses the 64-dimensional features. The classification head is not used in fusion."""
 
     def __init__(self, out_dim: int = 64):
         super().__init__()

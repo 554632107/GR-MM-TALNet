@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Extract laboratory values, text, and ECG inside the 48-hour window. This script does not train a model.
-The index time is 00:00 on the admission day. Controls are censored at 48 hours. Cases are censored at the earlier of 48 hours and the arrest time.
-Each laboratory item keeps only the first and second measurements before censoring. Text uses that day's chief complaint and present illness, with arrest-related sentences removed.
-ECG keeps the latest acceptable 10-second, 12-lead recording before censoring. Patients missing a modality stay in the cohort.
+Extract laboratory values, admission text, and ECG within an observation window of up to 48 hours.
+The index time is 00:00 on the admission day. The observation cutoff is 48 hours after the index time for controls, and the earlier of that time and cardiac arrest for cases.
+For each laboratory item, retain the first and second measurements before the cutoff. Use the chief complaint and history of present illness from the admission note, excluding arrest-related sentences.
+Select the latest eligible 10-second, 12-lead ECG before the cutoff. Retain patients with missing modalities.
 """
+
 from __future__ import annotations
 
 import json
@@ -36,7 +37,7 @@ from prepare_ecg import (
 
 
 def load_source_paths() -> None:
-    """Ask the environment for their paths before reading."""
+    """Load source-data paths from environment variables."""
     global CA_XLSX, HR_XLSX, TEXT_DIR, CA_ECG, HR_ECG
     CA_XLSX = data_path("CA_XLSX")
     HR_XLSX = data_path("HR_XLSX")
@@ -96,7 +97,7 @@ def split_sents(text: str) -> list[str]:
 
 
 def clean_note(chief: str, hpi: str) -> tuple[str, int, int]:
-    """Return the cleaned text, the number of removed leak sentences, and whether the chief complaint was written as 0."""
+    """Return the cleaned text, the number of sentences removed to prevent outcome leakage, and whether the chief complaint was written as 0."""
     chief = re.sub(r"\s+", " ", str(chief or "")).strip()
     hpi = re.sub(r"\s+", " ", str(hpi or "")).strip()
     if chief.lower() in ("nan", "none"):

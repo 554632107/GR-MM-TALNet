@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Read ECG XML and convert it to a 12-lead, 500 Hz, 10-second waveform with a 0.5–40 Hz bandpass.
-Which recording is chosen, and how the 48-hour window is applied, is defined in extract_window_features.py.
+Read ECG XML files and produce 10-second, 12-lead waveforms sampled at 500 Hz with 0.5–40 Hz bandpass filtering.
+Recording selection and the 48-hour observation window are defined in extract_window_features.py.
 """
+
 from __future__ import annotations
 
 import os

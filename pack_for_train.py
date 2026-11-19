@@ -2,9 +2,11 @@
 """
 Pack the cohort into arrays that training can read directly. Row order matches cohort/cohort_index.csv.
 Laboratory arrays store the first value, the second value, and a per-item switch, without imputation or standardization. The switch is 0 when there is no second value.
-Context is age, sex, comorbidities, and four first-measurement missingness indicators. Text is a 768-dimensional [CLS] vector, or zeros when text is missing.
-ECG storage keeps only the path of a usable waveform.
+Context includes age, sex, clinical history, medication use, lifestyle factors, and four indicators of missing first laboratory measurements.
+Text is a 768-dimensional [CLS] vector, or zeros when text is missing.
+Store paths to usable ECG waveforms.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,7 +30,7 @@ BERT = None
 
 
 def load_table_paths() -> None:
-    """Read age and comorbidities from the two Excel workbooks."""
+    """Load paths to the two Excel workbooks used for admission covariates."""
     global CA_XLSX, HR_XLSX
     if CA_XLSX is None:
         CA_XLSX = data_path("CA_XLSX")
@@ -36,7 +38,7 @@ def load_table_paths() -> None:
 
 
 def load_bert_path() -> None:
-    """Encode text with the frozen encoder supplied by the caller."""
+    """Load the path to the user-supplied frozen text encoder."""
     global BERT
     if BERT is None:
         BERT = data_path("BERT_DIR")
@@ -71,7 +73,7 @@ def z8(v) -> str:
 
 
 def age_num(value) -> float:
-    """Age rule: use a plain number as written, and use the midpoint of a written range."""
+    """Parse numeric ages directly and use the midpoint for age ranges."""
     if value is None or (isinstance(value, float) and np.isnan(value)) or pd.isna(value):
         return np.nan
     text = str(value).strip()

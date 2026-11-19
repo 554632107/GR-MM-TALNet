@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Build a 1:3 matched cohort from admission-laboratory completeness.
-Cases use the latest stay on or before the arrest day, and the laboratory time must precede the arrest. Controls use the earliest stay. Patients in the arrest workbook are never used as controls.
-After keeping grades good or excellent, match 1:3 without replacement by nearest completeness score.
+Build the primary cohort using admission tabular-data completeness.
+Retain patients graded good or excellent, then perform 1:3 nearest-neighbor
+matching without replacement based on the completeness score.
 """
+
 from __future__ import annotations
 
 import json

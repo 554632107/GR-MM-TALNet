@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Compute AUROC, AUPRC, and classification metrics at the Youden and maximum-F1 thresholds.
+Compute AUROC and AUPRC, with helper functions for threshold selection and classification metrics.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,7 +24,7 @@ def find_youden_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> float:
 
 
 def find_f1_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> float:
-    """Probability threshold that maximizes F1 on one fold's test set."""
+    """Return the probability threshold that maximizes F1 for the supplied labels and scores."""
     prec, rec, thr = precision_recall_curve(y_true, y_prob)
     if len(thr) == 0:
         return 0.5

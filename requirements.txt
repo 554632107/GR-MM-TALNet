@@ -1,10 +1,12 @@
-numpy
-pandas
-scipy
-scikit-learn
-torch
-lightgbm
-pytorch-tabnet
-openpyxl
-transformers
-jieba
+# Versions used in the tested environment (Python 3.13.5).
+numpy==2.2.6
+pandas==2.3.3
+scipy==1.16.2
+scikit-learn==1.7.2
+# Tested with torch 2.9.0+cu130. Install a 2.9.0 build that matches your GPU.
+torch==2.9.0
+lightgbm==4.6.0
+pytorch-tabnet==4.1.0
+openpyxl==3.1.5
+transformers==4.57.0
+jieba==0.42.1

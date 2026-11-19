@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-FT-Transformer used as a tabular baseline. Each column is one token, plus a [CLS], passed through one attention layer.
-The caller sets the column count. The tabular baseline passes 116 columns.
+FT-Transformer for the tabular baseline.
+Each feature is represented as a token. A [CLS] token is added, and all tokens pass through one attention layer.
+The number of input features is configurable; this study uses 116.
 """
+
 from __future__ import annotations
 
 import torch

@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Modality ablations of GR-MM-TALNet. The full model reuses its saved result, and the other three settings are retrained.
-Patients, seed 42, and 5 folds match the full model. A removed modality is off during both training and testing, and patients are not dropped.
-Results are written to results_mm_talnet_gate_small_modality/.
+Retrain GR-MM-TALNet with tabular inputs alone, with text, or with ECG.
+Retain all patients and use the full model's five-fold splits.
+Disable excluded modalities during training and testing.
+Save results to results_mm_talnet_gate_small_modality/.
 """
+
 from __future__ import annotations
 
 import json
@@ -39,7 +41,7 @@ RUNS = (
 
 
 def train_one(name, use_txt, use_ecg, y, first, later, switch, ctx, txt, has_txt, ecg, has_ecg, folds, device):
-    """Initialize and early-stop this setting on its own. Folds are supplied by the caller and shared by the three settings."""
+    """Initialize and train each setting independently with early stopping. Folds are supplied by the caller and shared by the three settings."""
     torch.manual_seed(SEED)
     np.random.seed(SEED)
     flag_txt = has_txt if use_txt else np.zeros_like(has_txt)

@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Component ablations of GR-MM-TALNet. The full model is not retrained here, and each run changes one part.
-The five removals are temporal pairing, adaptive gates, cross-modal attention, the tabular auxiliary loss, and the tabular-logit shortcut when an auxiliary modality is present.
-Standardization still uses the whole outer training fold. Results are written to results_mm_talnet_gate_small_component/.
+Run five component ablations of GR-MM-TALNet, changing one component at a time.
+Compare against saved full-model predictions using the same outer folds.
+Save results to results_mm_talnet_gate_small_component/.
 """
+
 from __future__ import annotations
 
 import json
@@ -263,8 +264,8 @@ def main() -> None:
     ctx = np.load(PACK / "context.npy").astype(np.float32)
     ecg, has_ecg = load_ecg(ids, pd.read_csv(PACK / "ecg_pick.csv", dtype={"病案号": str}, encoding="utf-8-sig"))
     aux = (has_txt > 0.5) | (has_ecg > 0.5)
-    if int((~aux).sum()) != 126 or int(aux.sum()) != 826:
-        raise RuntimeError(f"辅助模态人数不是 826/126：{int(aux.sum())}/{int((~aux).sum())}")
+    if not aux.any() or aux.all():
+        raise RuntimeError("Component subgroup analysis requires patients with and without auxiliary modalities.")
     folds = list(StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED).split(np.zeros(len(y)), y))
     full = pd.read_csv(FULL, dtype={"病案号": str}, encoding="utf-8-sig")
     full["病案号"] = full["病案号"].str.zfill(8)

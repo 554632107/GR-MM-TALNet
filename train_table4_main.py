@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Tabular baselines on 116 columns, plus late fusion with fixed weights.
-Patients, seed, and 5 folds match the main model. The 116 columns are 48 laboratory items, 20 admission covariates, and 48 deltas.
-When a second measurement exists, the level uses it; otherwise the first value is kept. A missing second measurement makes the delta missing.
-Results are written to results_table4_main/.
-Late fusion does not retrain text or ECG. The table uses this script's HistGB out-of-fold probabilities, and text and ECG use those from train_table3_unimodal.py.
-Missing-modality weights are set to 0 and the rest are renormalized. Locked weights: table+text 1.00/0.20, table+ECG 1.00/0.50, all three 1.00/0.20/0.30.
+Train LightGBM, TabNet, and FT-Transformer using 116 tabular features.
+Evaluate fixed-weight late fusion with saved text and ECG predictions.
+Use the same patients and five-fold splits as the main model.
+Save results to results_table4_main/.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,7 +18,6 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from scipy.stats import norm
-from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from torch.utils.data import DataLoader, TensorDataset
@@ -136,43 +134,21 @@ def load_116() -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[str]]:
 
 
 def run_trees(x: np.ndarray, y: np.ndarray, folds) -> dict[str, np.ndarray]:
-    out = {}
-    jobs = {
-        "HistGB": lambda: HistGradientBoostingClassifier(
-            max_depth=3, learning_rate=0.05, max_iter=200, max_leaf_nodes=20,
-            l2_regularization=1.0, min_samples_leaf=20, random_state=SEED,
-        ),
-    }
-    from xgboost import XGBClassifier
+    from lightgbm import LGBMClassifier
 
-    def make_xgb(tr_y):
-        n_pos = max(int(tr_y.sum()), 1)
-        return XGBClassifier(
-            n_estimators=200, max_depth=3, learning_rate=0.05,
-            subsample=0.8, colsample_bytree=0.8, reg_lambda=1.0,
-            scale_pos_weight=(len(tr_y) - n_pos) / n_pos,
-            objective="binary:logistic", eval_metric="auc",
-            n_jobs=4, random_state=SEED,
-        )
-
-    for name, factory in jobs.items():
-        print(name, flush=True)
-        oof = np.zeros(len(y))
-        for fold, (tr, te) in enumerate(folds, 1):
-            clf = factory()
-            clf.fit(x[tr], y[tr])
-            oof[te] = clf.predict_proba(x[te])[:, 1]
-            print(f"  fold {fold}: AUROC={roc_auc_score(y[te], oof[te]):.4f}", flush=True)
-        out[name] = oof
-    print("XGBoost", flush=True)
     oof = np.zeros(len(y))
     for fold, (tr, te) in enumerate(folds, 1):
-        clf = make_xgb(y[tr])
+        n_pos = max(int(y[tr].sum()), 1)
+        clf = LGBMClassifier(
+            n_estimators=200, max_depth=3, learning_rate=0.05,
+            min_child_samples=20, reg_lambda=1.0, subsample=0.8,
+            colsample_bytree=0.8, scale_pos_weight=(len(tr) - n_pos) / n_pos,
+            random_state=SEED, verbosity=-1,
+        )
         clf.fit(x[tr], y[tr])
         oof[te] = clf.predict_proba(x[te])[:, 1]
-        print(f"  fold {fold}: AUROC={roc_auc_score(y[te], oof[te]):.4f}", flush=True)
-    out["XGBoost"] = oof
-    return out
+        print(f"LightGBM fold {fold}: AUROC={roc_auc_score(y[te], oof[te]):.4f}", flush=True)
+    return {"LightGBM": oof}
 
 
 def continuous_index(cols: list[str]) -> list[int]:
@@ -199,6 +175,10 @@ def fill_fold(x: np.ndarray, cols: list[str], tr: np.ndarray) -> np.ndarray:
     return filled.astype(np.float32)
 
 
+BASELINE_EPOCHS = 80
+BASELINE_PATIENCE = 15
+
+
 def run_tabnet(x: np.ndarray, cols: list[str], y: np.ndarray, folds) -> np.ndarray:
     from pytorch_tabnet.tab_model import TabNetClassifier
 
@@ -219,7 +199,7 @@ def run_tabnet(x: np.ndarray, cols: list[str], y: np.ndarray, folds) -> np.ndarr
             filled[tr_i], y[tr_i],
             eval_set=[(filled[va_i], y[va_i])],
             eval_name=["val"], eval_metric=["auc"],
-            max_epochs=80, patience=15, batch_size=32, virtual_batch_size=16,
+            max_epochs=BASELINE_EPOCHS, patience=BASELINE_PATIENCE, batch_size=32, virtual_batch_size=16,
             weights=1, drop_last=False,
         )
         oof[te] = clf.predict_proba(filled[te])[:, 1]
@@ -251,7 +231,7 @@ def run_ft(x: np.ndarray, cols: list[str], y: np.ndarray, folds, device) -> np.n
         tr_i, va_i = train_test_split(tr, test_size=0.15, random_state=SEED, stratify=y[tr])
         model = FeatureTransformer(n_features=filled.shape[1], d_model=32, n_heads=4).to(device)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
-        sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=80, eta_min=1e-5)
+        sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=BASELINE_EPOCHS, eta_min=1e-5)
         best, state, wait = -1.0, None, 0
 
         def batch(idx, shuffle):
@@ -259,7 +239,7 @@ def run_ft(x: np.ndarray, cols: list[str], y: np.ndarray, folds, device) -> np.n
             return DataLoader(ds, batch_size=32, shuffle=shuffle)
 
         tr_dl, va_dl = batch(tr_i, True), batch(va_i, False)
-        for _epoch in range(80):
+        for _epoch in range(BASELINE_EPOCHS):
             model.train()
             for xb, yb in tr_dl:
                 xb, yb = xb.to(device), yb.to(device)
@@ -280,7 +260,7 @@ def run_ft(x: np.ndarray, cols: list[str], y: np.ndarray, folds, device) -> np.n
                 state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             else:
                 wait += 1
-                if wait >= 15:
+                if wait >= BASELINE_PATIENCE:
                     break
         if state is not None:
             model.load_state_dict(state)
@@ -338,7 +318,7 @@ def main() -> None:
         "n_features": 116,
         "columns": cols,
         "models": {},
-        "delong_alt_minus_histgb": {},
+        "delong_alt_minus_lightgbm": {},
     }
     preds = {"病案号": ids["病案号"].to_numpy(), "标签": y}
 
@@ -354,7 +334,7 @@ def main() -> None:
     has_ecg = t3["has_ecg"].fillna(0).to_numpy(int) == 1
     p_txt = t3["冻结CLS+线性头"].to_numpy(float)
     p_ecg = t3["浅层1D-CNN"].to_numpy(float)
-    p_hist = trees["HistGB"]
+    p_hist = trees["LightGBM"]
     fused = {
         "晚期表+文": fuse_one((1.0, 0.2, 0.0), p_hist, p_txt, p_ecg, has_txt, has_ecg),
         "晚期表+心电": fuse_one((1.0, 0.0, 0.5), p_hist, p_txt, p_ecg, has_txt, has_ecg),
@@ -367,7 +347,7 @@ def main() -> None:
     mm = ids[["病案号"]].merge(mm, on="病案号", how="left")
     p_mm = mm["p_mm"].to_numpy(float)
 
-    order = ["HistGB", "XGBoost", "晚期表+文", "晚期表+心电", "晚期表+文+心电", "TabNet", "FT-Transformer"]
+    order = ["LightGBM", "晚期表+文", "晚期表+心电", "晚期表+文+心电", "TabNet", "FT-Transformer"]
     all_p = {**trees, **fused}
     for name in order:
         row = score_row(name, y, all_p[name], folds)
@@ -380,9 +360,9 @@ def main() -> None:
             f"  F1 {f1['mean']:.4f} ± {f1['std']:.4f}  OOF {row['oof_auroc']:.4f}",
             flush=True,
         )
-        if name != "HistGB":
-            summary["delong_alt_minus_histgb"][name] = delong(y, p_hist, all_p[name])
-    summary["delong_alt_minus_histgb"]["MM-TALNet"] = delong(y, p_hist, p_mm)
+        if name != "LightGBM":
+            summary["delong_alt_minus_lightgbm"][name] = delong(y, p_hist, all_p[name])
+    summary["delong_alt_minus_lightgbm"]["MM-TALNet"] = delong(y, p_hist, p_mm)
     summary["delong_alt_minus_mm"] = {
         "TabNet": delong(y, p_mm, trees["TabNet"]),
         "FT-Transformer": delong(y, p_mm, trees["FT-Transformer"]),
@@ -396,49 +376,6 @@ def main() -> None:
     (OUT / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"write {OUT}", flush=True)
 
-
-def add_lgbm() -> None:
-    """Add LightGBM only. Do not retrain models already written by this script."""
-    ids, y, x, _cols = load_116()
-    folds = list(StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED).split(np.zeros(len(y)), y))
-    from lightgbm import LGBMClassifier
-
-    print("LightGBM", flush=True)
-    oof = np.zeros(len(y))
-    for fold, (tr, te) in enumerate(folds, 1):
-        n_pos = max(int(y[tr].sum()), 1)
-        clf = LGBMClassifier(
-            n_estimators=200, max_depth=3, learning_rate=0.05,
-            min_child_samples=20, reg_lambda=1.0, subsample=0.8,
-            colsample_bytree=0.8, scale_pos_weight=(len(tr) - n_pos) / n_pos,
-            random_state=SEED, verbosity=-1,
-        )
-        clf.fit(x[tr], y[tr])
-        oof[te] = clf.predict_proba(x[te])[:, 1]
-        print(f"  fold {fold}: AUROC={roc_auc_score(y[te], oof[te]):.4f}", flush=True)
-    row = score_row("LightGBM", y, oof, folds)
-    oof_df = pd.read_csv(OUT / "oof.csv", dtype={"病案号": str}, encoding="utf-8-sig")
-    oof_df["病案号"] = oof_df["病案号"].str.zfill(8)
-    aligned = ids[["病案号"]].merge(oof_df, on="病案号", how="left")
-    if len(aligned) != len(y) or aligned["HistGB"].isna().any():
-        raise RuntimeError("已有折外概率和 116 列名单对不齐")
-    summary = json.loads((OUT / "summary.json").read_text(encoding="utf-8"))
-    summary["models"]["LightGBM"] = row
-    summary["delong_alt_minus_histgb"]["LightGBM"] = delong(y, aligned["HistGB"].to_numpy(float), oof)
-    summary["lightgbm_note"] = "补充的 LightGBM。同一 116 列，200 棵树，深度 3，学习率 0.05，直接接受缺失。在整个外层训练折上拟合，与本脚本的 HistGB、XGBoost 相同。"
-    (OUT / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    aligned["LightGBM"] = oof
-    aligned.to_csv(OUT / "oof.csv", index=False, encoding="utf-8-sig")
-    auc, ap, f1 = row["five_fold_auroc"], row["five_fold_auprc"], row["five_fold_f1"]
-    d = summary["delong_alt_minus_histgb"]["LightGBM"]
-    print(
-        f"LightGBM  5折 AUROC {auc['mean']:.4f} ± {auc['std']:.4f}"
-        f"  AUPRC {ap['mean']:.4f} ± {ap['std']:.4f}"
-        f"  F1 {f1['mean']:.4f} ± {f1['std']:.4f}  OOF {row['oof_auroc']:.4f}"
-        f"  相对 HistGB {d['delta']:+.4f}  p={d['p']:.4f}",
-        flush=True,
-    )
-    print(f"write {OUT}", flush=True)
 
 
 if __name__ == "__main__":

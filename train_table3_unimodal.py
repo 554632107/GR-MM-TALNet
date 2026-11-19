@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Train unimodal text and ECG models on patients who have that modality.
-Outer folds match the main model: all patients, seed 42. Patients without the modality are excluded from that group's loss and metrics.
-Text uses features/pack/text_cls.npy. ECG uses the extracted waveforms, and handcrafted features are read from the matching XML.
-Results are written to results_table3_unimodal/ for late fusion.
+Train text and ECG baselines on patients with the corresponding modality.
+Use the main model's outer folds, then exclude patients missing that modality.
+Save predictions to results_table3_unimodal/ for late fusion.
 """
+
 from __future__ import annotations
 
 import json
@@ -321,7 +321,7 @@ def run_cnn(name: str, waves: np.ndarray, y: np.ndarray, has: np.ndarray, factor
 
 
 def match_xml(pid: str, label: int, pick_time: str) -> Path | None:
-    """Find the XML whose recording time matches the saved pick."""
+    """Find the XML whose recording time matches the selected recording."""
     root = data_path("CA_ECG") if int(label) == 1 else data_path("HR_ECG")
     folder = patient_dir(root, pid)
     if folder is None or not pick_time:
@@ -342,7 +342,7 @@ def match_xml(pid: str, label: int, pick_time: str) -> Path | None:
 
 
 def load_hand_meas(ids: pd.DataFrame) -> np.ndarray:
-    """Read machine measurements for patients with ECG. Patients without ECG are entirely missing."""
+    """Read machine measurements for patients with ECG. All ECG features are missing for patients without ECG."""
     pick = pd.read_csv(HERE / "features" / "ecg_pick.csv", dtype={"病案号": str}, encoding="utf-8-sig")
     pick["病案号"] = pick["病案号"].str.zfill(8)
     pick = ids[["病案号"]].merge(pick, on="病案号", how="left")
@@ -369,7 +369,7 @@ def load_hand_meas(ids: pd.DataFrame) -> np.ndarray:
 def load_text():
     ids = pd.read_csv(PACK / "text_cls_ids.csv", dtype={"病案号": str}, encoding="utf-8-sig")
     ids["病案号"] = ids["病案号"].str.zfill(8)
-    text = pd.read_csv(HERE / "features" / "text_clean_v2.csv", dtype={"病案号": str}, encoding="utf-8-sig")
+    text = pd.read_csv(HERE / "features" / "text_admission.csv", dtype={"病案号": str}, encoding="utf-8-sig")
     text["病案号"] = text["病案号"].str.zfill(8)
     df = ids.merge(text[["病案号", "叙述清洗", "has_text"]], on="病案号", how="left", suffixes=("", "_file"))
     y = df["标签"].to_numpy(int)

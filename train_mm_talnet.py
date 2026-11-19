@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Train the shared-residual MM-TALNet, and share its folds, imputation, and ECG loading with GR-MM-TALNet.
-One 5-fold run reports the full model, the tabular branch, and slices by text and ECG availability.
-Seed 42, stratified 5-fold, with 15% of each outer training fold held out for early stopping.
-At most 50 epochs; stop after 10 epochs without a gain in validation AUROC.
-Batch size 16 and learning rate 5e-4. The loss is fusion BCE plus 0.35 times tabular BCE.
-Imputation and standardization use only the current training fold.
+Train shared-residual MM-TALNet and provide utilities used by GR-MM-TALNet.
+Use stratified five-fold cross-validation with early stopping.
+Fit preprocessing on the outer training fold, including its validation subset.
 """
+
 from __future__ import annotations
 
 import argparse

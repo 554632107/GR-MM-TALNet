@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Train GR-MM-TALNet.
-Final logit = tabular logit + has_text × text gate × text residual + has_ecg × ECG gate × ECG residual.
-Folds, seed, loss, and text vectors match train_mm_talnet.py. Results are written to results_mm_talnet_gate_small/.
+Train GR-MM-TALNet with separate gated text and ECG residual corrections.
+Use the same folds and training settings as train_mm_talnet.py.
+Save results to results_mm_talnet_gate_small/.
 """
+
 from __future__ import annotations
 
 import json
@@ -203,10 +204,7 @@ def main() -> None:
     he = has_ecg > 0.5
     neither = (~ht) & (~he)
     same = float(np.max(np.abs(oof[neither] - oof_tab[neither]))) if neither.any() else 0.0
-    mm = pd.read_csv(MM_OOF, dtype={"病案号": str}, encoding="utf-8-sig")
-    mm["病案号"] = mm["病案号"].str.zfill(8)
-    aligned = pd.DataFrame({"病案号": ids}).merge(mm[["病案号", "p_mm"]], on="病案号", how="left")
-    compared = delong(y, aligned["p_mm"].to_numpy(float), oof)
+    compared = None
     summary = {
         "model": "小型门控残差。三个分支不变，共享残差拆成两路。",
         "text_npy": "text_cls.npy",
@@ -237,10 +235,32 @@ def main() -> None:
         "g_txt": oof_gt, "g_ecg": oof_ge,
     }).to_csv(OUT / "oof.csv", index=False, encoding="utf-8-sig")
     (OUT / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    if MM_OOF.exists():
+        try:
+            mm = pd.read_csv(MM_OOF, dtype={"病案号": str}, encoding="utf-8-sig")
+            mm["病案号"] = mm["病案号"].str.zfill(8)
+            aligned = pd.DataFrame({"病案号": ids, "label": y}).merge(
+                mm[["病案号", "标签", "p_mm"]], on="病案号", how="left", validate="one_to_one",
+            )
+            ref = aligned["p_mm"].to_numpy(float)
+            if not np.isfinite(ref).all() or not np.all((ref >= 0) & (ref <= 1)):
+                raise ValueError("Reference probabilities are missing or invalid.")
+            if not np.array_equal(aligned["label"].to_numpy(), aligned["标签"].to_numpy()):
+                raise ValueError("Reference labels do not match the main cohort.")
+            compared = delong(y, ref, oof)
+        except (OSError, ValueError, KeyError, pd.errors.ParserError) as exc:
+            print(f"Skipping optional reference comparison: {exc}", flush=True)
+        else:
+            summary["delong_small_minus_proposed"] = compared
+            (OUT / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    comparison_text = (
+        f"  Reference delta={compared['delta']:+.4f}  p={compared['p']:.4f}"
+        if compared is not None else ""
+    )
     auc = summary["five_fold_auroc"]
     print(
         f"5折 AUROC {auc['mean']:.4f} ± {auc['std']:.4f}  OOF {summary['oof_auroc']:.4f}"
-        f"  相对提出方法 {compared['delta']:+.4f}  p={compared['p']:.4f}"
+        f"{comparison_text}"
         f"  两者都没有的最大差 {same:.6f}",
         flush=True,
     )

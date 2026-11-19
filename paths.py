@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Paths to source data. Preparation scripts read these environment variables only when opening files.
-CA_XLSX is the in-hospital cardiac-arrest workbook. HR_XLSX is the high-risk control workbook.
-CA_ECG and HR_ECG are ECG XML roots, with one subdirectory per patient id.
-TEXT_DIR is the admission-note JSON directory. BERT_DIR is a frozen text encoder in Hugging Face format.
-Training the main model does not read these files. It reads the arrays in features/pack.
+Load source-data and frozen text-encoder paths from environment variables.
+The main training script reads prepared arrays from features/pack.
 """
+
 from __future__ import annotations
 
 import os

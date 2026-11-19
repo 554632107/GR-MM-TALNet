@@ -1,4 +1,6 @@
 __pycache__/
+smoke_test.log
+smoke_*/
 *.py[cod]
 .pytest_cache/
 .venv/
